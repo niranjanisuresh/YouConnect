@@ -1,0 +1,1 @@
+YouTube-like platform with an integrated real-time chatbot
