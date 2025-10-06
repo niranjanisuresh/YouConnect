@@ -1,17 +1,20 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Add your Render URL here
+const FRONTEND_URL = 'youconnect-7.onrender.com'
+
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3002,
     host: true,
-    proxy: {
-      '/socket.io': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-        ws: true,
-      }
+    port: 3000,
+    strictPort: true,
+    preview: {
+      allowedHosts: [FRONTEND_URL]
     }
+  },
+  build: {
+    outDir: 'dist'
   }
 })
