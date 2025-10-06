@@ -1,134 +1,161 @@
-import { useEffect, useRef } from 'react';
-import io from 'socket.io-client';
-import { authService } from '../utils/auth';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { io } from 'socket.io-client';
 
-export const useWebSocket = (videoId, setMessages) => {
+// Get backend URL from environment variables
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+export const useWebSocket = (token = null) => {
+  const [isConnected, setIsConnected] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [currentRoom, setCurrentRoom] = useState(null);
   const socketRef = useRef(null);
 
+  // Initialize socket connection
   useEffect(() => {
-    // Try multiple connection URLs
-    const backendUrls = [
-      'http://localhost:3001',
-      'http://127.0.0.1:3001'
-    ];
-
-    let connected = false;
-
-    const tryConnect = (urlIndex = 0) => {
-      if (urlIndex >= backendUrls.length) {
-        console.log('❌ All connection attempts failed');
-        return;
+    console.log('🔗 Connecting to WebSocket:', BACKEND_URL);
+    
+    socketRef.current = io(BACKEND_URL, {
+      auth: {
+        token: token || 'demo-token'
       }
+    });
 
-      const backendUrl = backendUrls[urlIndex];
-      console.log(`🔗 Attempting to connect to: ${backendUrl}`);
+    // Connection events
+    socketRef.current.on('connect', () => {
+      console.log('✅ WebSocket connected');
+      setIsConnected(true);
+    });
 
-      const token = authService.getToken();
-      
-      socketRef.current = io(backendUrl, {
-        transports: ['websocket', 'polling'],
-        timeout: 5000,
-        reconnectionAttempts: 3,
-        reconnectionDelay: 1000,
-        auth: {
-          token: token || 'demo-token'
-        }
-      });
+    socketRef.current.on('disconnect', () => {
+      console.log('❌ WebSocket disconnected');
+      setIsConnected(false);
+    });
 
-      socketRef.current.on('connect', () => {
-        connected = true;
-        console.log('✅ Connected to WebSocket server at:', backendUrl);
-        
-        // Join video room
-        if (videoId) {
-          console.log('Joining video room:', videoId);
-          socketRef.current.emit('join_video', videoId);
-        }
-      });
+    socketRef.current.on('connect_error', (error) => {
+      console.error('❌ WebSocket connection error:', error);
+      setIsConnected(false);
+    });
 
-      socketRef.current.on('new_message', (message) => {
-        console.log('New message received:', message);
-        setMessages(prev => [...prev, message]);
-      });
+    // User events
+    socketRef.current.on('user_connected', (user) => {
+      console.log('👤 User connected:', user);
+    });
 
-      socketRef.current.on('chat_history', (messages) => {
-        console.log('Chat history received:', messages);
-        setMessages(messages);
-      });
+    // Chat events
+    socketRef.current.on('chat_history', (history) => {
+      console.log('📨 Received chat history:', history.length, 'messages');
+      setMessages(history);
+    });
 
-      socketRef.current.on('bot_response', (response) => {
-        console.log('Bot response received:', response);
-        setMessages(prev => [...prev, response]);
-      });
+    socketRef.current.on('new_message', (message) => {
+      console.log('📩 New message:', message);
+      setMessages(prev => [...prev, message]);
+    });
 
-      socketRef.current.on('user_connected', (userData) => {
-        console.log('User connected:', userData);
-      });
+    socketRef.current.on('message_liked', ({ messageId, likes }) => {
+      console.log('👍 Message liked:', messageId, 'likes:', likes);
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId ? { ...msg, likes } : msg
+      ));
+    });
 
-      socketRef.current.on('user_joined', (data) => {
-        console.log('User joined:', data);
-      });
+    // Room events
+    socketRef.current.on('user_joined', (data) => {
+      console.log('👋 User joined:', data);
+    });
 
-      socketRef.current.on('user_left', (data) => {
-        console.log('User left:', data);
-      });
+    socketRef.current.on('user_left', (data) => {
+      console.log('👋 User left:', data);
+    });
 
-      socketRef.current.on('disconnect', (reason) => {
-        console.log('❌ Disconnected from WebSocket server. Reason:', reason);
-        connected = false;
-      });
+    socketRef.current.on('user_typing', (data) => {
+      console.log('⌨️ User typing:', data);
+      // You can implement typing indicators here
+    });
 
-      socketRef.current.on('connect_error', (error) => {
-        console.log(`❌ Connection failed to ${backendUrl}:`, error.message);
-        connected = false;
-        
-        // Try next URL after a delay
-        setTimeout(() => {
-          if (!connected) {
-            socketRef.current?.disconnect();
-            tryConnect(urlIndex + 1);
-          }
-        }, 1000);
-      });
+    socketRef.current.on('user_stop_typing', (data) => {
+      console.log('💤 User stopped typing:', data);
+      // You can implement typing indicators here
+    });
 
-      socketRef.current.on('error', (error) => {
-        console.log('❌ WebSocket error:', error);
-      });
-    };
+    // Error events
+    socketRef.current.on('error', (error) => {
+      console.error('❌ Socket error:', error);
+    });
 
-    // Start connection attempts
-    tryConnect();
+    // Connection test event
+    socketRef.current.on('connection_test', (data) => {
+      console.log('🔗 Connection test:', data);
+    });
 
+    // Cleanup on unmount
     return () => {
       if (socketRef.current) {
-        console.log('Cleaning up WebSocket connection');
+        console.log('🧹 Cleaning up WebSocket connection');
         socketRef.current.disconnect();
+        socketRef.current = null;
       }
     };
-  }, [videoId, setMessages]);
+  }, [token]);
 
-  // Rejoin room when videoId changes
-  useEffect(() => {
-    if (socketRef.current?.connected && videoId) {
-      console.log('Switching to video room:', videoId);
+  // Join a video room
+  const joinRoom = useCallback((videoId) => {
+    if (socketRef.current && isConnected) {
+      console.log(`🎬 Joining room: ${videoId}`);
       socketRef.current.emit('join_video', videoId);
-      setMessages([]);
-    }
-  }, [videoId, setMessages]);
-
-  const sendMessage = (message) => {
-    if (socketRef.current?.connected) {
-      console.log('Sending message:', message);
-      socketRef.current.emit('send_message', message);
+      setCurrentRoom(videoId);
+      setMessages([]); // Clear messages when joining new room
     } else {
-      console.log('Cannot send message - socket not connected');
-      alert('Cannot send message - backend server is not connected');
+      console.log('❌ Cannot join room - socket not connected');
     }
-  };
+  }, [isConnected]);
+
+  // Send a message
+  const sendMessage = useCallback((messageData) => {
+    if (socketRef.current && isConnected) {
+      console.log('💬 Sending message:', messageData);
+      socketRef.current.emit('send_message', messageData);
+    } else {
+      console.log('❌ Cannot send message - socket not connected');
+    }
+  }, [isConnected]);
+
+  // Like a message
+  const likeMessage = useCallback((messageId) => {
+    if (socketRef.current && isConnected) {
+      console.log('👍 Liking message:', messageId);
+      socketRef.current.emit('like_message', {
+        messageId,
+        videoId: currentRoom
+      });
+    } else {
+      console.log('❌ Cannot like message - socket not connected');
+    }
+  }, [isConnected, currentRoom]);
+
+  // Start typing indicator
+  const startTyping = useCallback(() => {
+    if (socketRef.current && isConnected && currentRoom) {
+      socketRef.current.emit('typing_start', currentRoom);
+    }
+  }, [isConnected, currentRoom]);
+
+  // Stop typing indicator
+  const stopTyping = useCallback(() => {
+    if (socketRef.current && isConnected && currentRoom) {
+      socketRef.current.emit('typing_stop', currentRoom);
+    }
+  }, [isConnected, currentRoom]);
 
   return {
+    socket: socketRef.current,
+    isConnected,
+    messages,
+    currentRoom,
+    joinRoom,
     sendMessage,
-    isConnected: socketRef.current?.connected || false,
-    socket: socketRef.current
+    likeMessage,
+    startTyping,
+    stopTyping
   };
 };

@@ -1,224 +1,192 @@
 import React, { useState, useEffect } from 'react';
-import Header from './components/Header';
-import VideoPlayer from './components/VideoPlayer';
-import VideoList from './components/VideoList';
-import Chat from './components/Chat';
-import Login from './components/Login';
-import VideoUpload from './components/VideoUpload';
-import { authService } from './utils/auth';
-import { useWebSocket } from './hooks/useWebSocket';
-import './index.css';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import './App.css';
 
-// Mock videos data - Add this before the App component
-const mockVideos = [
-  {
-    id: "1",
-    title: "Learn React.js - Full Course for Beginners",
-    description: "Master React.js fundamentals with this comprehensive tutorial. Learn components, hooks, state management, and build real projects.",
-    url: "https://www.youtube.com/watch?v=SqcY0GlETPk",
-    thumbnail: "https://i.ytimg.com/vi/SqcY0GlETPk/hqdefault.jpg",
-    duration: "2:25:00",
-    category: "Programming",
-    views: 2540000,
-    likes: 85000,
-    uploadedBy: "CodeMaster",
-    uploadedById: "user_123",
-    uploadDate: "2024-01-15T00:00:00.000Z"
-  },
-  {
-    id: "2",
-    title: "JavaScript Masterclass - From Zero to Hero",
-    description: "Complete JavaScript tutorial covering modern ES6+ features, async programming, and advanced concepts.",
-    url: "https://www.youtube.com/watch?v=W6NZfCO5SIk",
-    thumbnail: "https://i.ytimg.com/vi/W6NZfCO5SIk/hqdefault.jpg",
-    duration: "1:38:00",
-    category: "Programming", 
-    views: 1850000,
-    likes: 62000,
-    uploadedBy: "WebDev Pro",
-    uploadedById: "user_456",
-    uploadDate: "2024-01-10T00:00:00.000Z"
-  },
-  {
-    id: "3",
-    title: "Node.js & Express.js - Build REST APIs",
-    description: "Learn to build scalable backend APIs with Node.js, Express.js, and MongoDB. Full project included.",
-    url: "https://www.youtube.com/watch?v=fgTGADljAeg",
-    thumbnail: "https://i.ytimg.com/vi/fgTGADljAeg/hqdefault.jpg",
-    duration: "2:15:00",
-    category: "Backend",
-    views: 920000,
-    likes: 31000,
-    uploadedBy: "Backend Expert",
-    uploadedById: "user_789",
-    uploadDate: "2024-01-08T00:00:00.000Z"
-  },
-  {
-    id: "4",
-    title: "Python for Beginners - Learn Python in 1 Hour",
-    description: "Quick Python introduction covering syntax, data structures, and basic programming concepts.",
-    url: "https://www.youtube.com/watch?v=kqtD5dpn9C8",
-    thumbnail: "https://i.ytimg.com/vi/kqtD5dpn9C8/hqdefault.jpg",
-    duration: "1:02:00",
-    category: "Programming",
-    views: 1680000,
-    likes: 55000,
-    uploadedBy: "Python Guru",
-    uploadedById: "user_101",
-    uploadDate: "2024-01-05T00:00:00.000Z"
-  }
-];
+// Components
+import Navbar from './components/Nayout/Navbar';
+import VideoList from './components/Videos/VideoList';
+import VideoPlayer from './components/Videos/VideoPlayer';
+import AuthModal from './components/Auth/AuthModal';
+import Chat from './components/Chat/Chat';
+
+// Services
+import authService from './services/authService';
+
+// Hooks
+import { useWebSocket } from './hooks/useWebSocket';
+
+// Get backend URL from environment variables
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 function App() {
-  const [currentVideo, setCurrentVideo] = useState(mockVideos[0]);
-  const [messages, setMessages] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
   const [user, setUser] = useState(null);
-  const [showLogin, setShowLogin] = useState(false);
-  const [showRegister, setShowRegister] = useState(false);
-  const [showUpload, setShowUpload] = useState(false);
-  const [videos, setVideos] = useState(mockVideos);
+  const [loading, setLoading] = useState(true);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [selectedVideo, setSelectedVideo] = useState(null);
 
-  const { sendMessage, isConnected, socket } = useWebSocket(currentVideo?.id, setMessages);
+  // Initialize WebSocket
+  const { socket, isConnected, messages, sendMessage, joinRoom, likeMessage } = useWebSocket(
+    user ? user.token : null
+  );
 
-  // Check if user is logged in on app start
+  // Check if user is authenticated on app load
   useEffect(() => {
-    if (authService.isAuthenticated()) {
-      const userData = authService.getUser();
-      setUser(userData);
-      
-      // Verify token with backend (optional)
-      verifyToken();
-    } else {
-      setShowLogin(true);
-    }
+    const checkAuth = async () => {
+      try {
+        const token = authService.getToken();
+        if (token) {
+          const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
+            headers: authService.authHeaders()
+          });
+          
+          if (response.ok) {
+            const userData = await response.json();
+            setUser(userData.data);
+          } else {
+            authService.logout();
+          }
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        authService.logout();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
   }, []);
 
-  const verifyToken = async () => {
-    try {
-      const response = await fetch('http://localhost:3001/api/auth/me', {
-        headers: authService.authHeaders()
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.data);
-      } else {
-        // Token is invalid, logout
-        handleLogout();
-      }
-    } catch (error) {
-      console.log('Token verification failed, using stored user data');
-      // Continue with stored user data if backend is not available
-    }
+  // Handle user login
+  const handleLogin = async (userData) => {
+    setUser(userData.user);
+    authService.setToken(userData.token);
+    setShowAuthModal(false);
   };
 
-  const handleVideoSelect = (video) => {
-    setCurrentVideo(video);
-  };
-
-  const handleSendMessage = (messageText) => {
-    if (messageText.trim() && currentVideo) {
-      const message = {
-        text: messageText,
-        videoId: currentVideo.id,
-        timestamp: new Date().toISOString(),
-        user: user?.username || 'Anonymous',
-        userId: user?.id || 'anonymous' // Include user ID in messages
-      };
-      sendMessage(message);
-    }
-  };
-
-  const handleLogin = (userData) => {
-    setUser(userData);
-    setShowLogin(false);
-    setShowRegister(false);
-  };
-
+  // Handle user logout
   const handleLogout = () => {
     authService.logout();
     setUser(null);
-    setShowLogin(true);
+    setSelectedVideo(null);
   };
 
-  const handleUpload = (newVideo) => {
-    const videoWithUser = {
-      ...newVideo,
-      uploadedBy: user.username,
-      uploadedById: user.id, // Store the user ID who uploaded
-      uploadDate: new Date().toISOString()
-    };
+  // Open auth modal in specific mode
+  const openAuthModal = (mode = 'login') => {
+    setAuthMode(mode);
+    setShowAuthModal(true);
+  };
+
+  // Handle video selection
+  const handleVideoSelect = (video) => {
+    setSelectedVideo(video);
     
-    setVideos(prevVideos => [videoWithUser, ...prevVideos]);
-    setCurrentVideo(videoWithUser);
+    // Join the video room for chat
+    if (socket && isConnected) {
+      joinRoom(video.id);
+    }
   };
 
-  const filteredVideos = videos.filter(video =>
-    video.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    video.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    video.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    video.uploadedBy?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Handle back to video list
+  const handleBackToList = () => {
+    setSelectedVideo(null);
+  };
 
-  // Show login modal if no user is logged in
-  if (!user && showLogin) {
+  // Handle sending chat messages
+  const handleSendMessage = (text) => {
+    if (selectedVideo && text.trim()) {
+      sendMessage({
+        videoId: selectedVideo.id,
+        text: text.trim()
+      });
+    }
+  };
+
+  if (loading) {
     return (
-      <Login 
-        onLogin={handleLogin}
-        onClose={() => setShowLogin(false)}
-        showRegister={showRegister}
-        onToggleMode={() => setShowRegister(!showRegister)}
-      />
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading...</div>
+      </div>
     );
   }
 
   return (
-    <div className="app">
-      <Header 
-        searchTerm={searchTerm}
-        onSearchChange={setSearchTerm}
-        user={user}
-        onLoginClick={() => setShowLogin(true)}
-        onLogoutClick={handleLogout}
-        onUploadClick={() => setShowUpload(true)}
-      />
-      
-      <div className="app-container">
-        <div className="main-content">
-          <div className="video-section">
-            <VideoPlayer video={currentVideo} />
-          </div>
-          
-          <div className="video-list-section">
-            <VideoList 
-              videos={filteredVideos}
-              currentVideo={currentVideo}
-              onVideoSelect={handleVideoSelect}
-              user={user}
-            />
-          </div>
-        </div>
-        
-        <div className="chat-section">
-          <Chat 
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            isConnected={isConnected}
-            currentVideo={currentVideo}
-            user={user}
-          />
-        </div>
-      </div>
-
-      {showUpload && user && (
-        <VideoUpload 
-          onUpload={handleUpload}
-          onClose={() => setShowUpload(false)}
-          user={user}
+    <Router>
+      <div className="min-h-screen bg-gray-900">
+        <Navbar 
+          user={user} 
+          onLoginClick={() => openAuthModal('login')}
+          onRegisterClick={() => openAuthModal('register')}
+          onLogoutClick={handleLogout}
         />
-      )}
-    </div>
+        
+        <main className="container mx-auto px-4 py-8">
+          <Routes>
+            <Route 
+              path="/" 
+              element={
+                selectedVideo ? (
+                  <div className="flex flex-col lg:flex-row gap-8">
+                    {/* Video Player Section */}
+                    <div className="lg:w-2/3">
+                      <VideoPlayer 
+                        video={selectedVideo}
+                        onBack={handleBackToList}
+                      />
+                    </div>
+                    
+                    {/* Chat Section */}
+                    <div className="lg:w-1/3">
+                      <Chat
+                        messages={messages}
+                        onSendMessage={handleSendMessage}
+                        onLikeMessage={likeMessage}
+                        isConnected={isConnected}
+                        currentUser={user}
+                        videoId={selectedVideo.id}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <VideoList onVideoSelect={handleVideoSelect} />
+                )
+              } 
+            />
+            
+            {/* Redirect any unknown routes to home */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+
+        {/* Auth Modal */}
+        {showAuthModal && (
+          <AuthModal
+            mode={authMode}
+            onClose={() => setShowAuthModal(false)}
+            onSwitchMode={(mode) => setAuthMode(mode)}
+            onSuccess={handleLogin}
+            backendUrl={BACKEND_URL}
+          />
+        )}
+
+        {/* Toast Notifications */}
+        <ToastContainer
+          position="bottom-right"
+          autoClose={5000}
+          hideProgressBar={false}
+          newestOnTop
+          closeOnClick
+          rtl={false}
+          pauseOnFocusLoss
+          draggable
+          pauseOnHover
+          theme="dark"
+        />
+      </div>
+    </Router>
   );
 }
 
