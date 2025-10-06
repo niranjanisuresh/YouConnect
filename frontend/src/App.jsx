@@ -5,11 +5,12 @@ import 'react-toastify/dist/ReactToastify.css';
 import './App.css';
 
 // Components
-import Navbar from './components/Nayout/Navbar';
-import VideoList from './components/Videos/VideoList';
-import VideoPlayer from './components/Videos/VideoPlayer';
-import AuthModal from './components/Auth/AuthModal';
-import Chat from './components/Chat/Chat';
+import Header from "./components/Header";
+import VideoList from "./components/VideoList";
+import VideoPlayer from "./components/VideoPlayer";
+import Login from "./components/Login";
+import Chat from "./components/Chat";
+
 
 // Services
 import authService from './services/authService';
